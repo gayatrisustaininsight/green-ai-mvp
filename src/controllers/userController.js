@@ -30,7 +30,9 @@ exports.register = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
+    console.log(req.body);
     const { email, password } = req.body;
+    console.log(email, password);
     const user = await User.findOne({ email });
     if (!user) return errorResponse(res, {
         statusCode: 400,
@@ -38,6 +40,7 @@ exports.login = async (req, res) => {
     });
 
     const valid = await user.comparePassword(password);
+    console.log(valid);
     if (!valid) return errorResponse(res, {
         statusCode: 400,
         message: 'Invalid credentials'
