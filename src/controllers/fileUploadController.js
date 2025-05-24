@@ -35,7 +35,10 @@ exports.FileUpload = async (req, res) => {
                 req.files.forEach((element, index) => {
                     fileSave[element.fieldname].push({ [element.originalname.replace(/ /g, '_')]: fileDetails[index] });
                 });
-            }
+            } ;
+
+
+             
             return successResponse(res, {
                 statusCode: 200,
                 message: "Successfully Upload",

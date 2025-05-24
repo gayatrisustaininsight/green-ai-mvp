@@ -1,5 +1,6 @@
 /**
  * LEED Credit Assessment Rule Engine
+ * File: utils/leedrules.js
  * Comprehensive system for evaluating LEED credits with extensible rule sets
  */
 
@@ -508,512 +509,365 @@ class LEEDUtils {
 }
 
 /**
- * Multi-Document Data Consolidator for LEED Credits
- * Handles structured multi-document format with pre-extracted parameter values
+ * Static test data for LEED credit assessment
  */
-class LEEDDataConsolidator {
-  constructor() {
-    this.priorityRules = {
-      // Default priority for parameter sources (higher number = higher priority)
-      'manufacturer_datasheet': 10,
-      'equipment_schedule': 8,
-      'specification': 7,
-      'calculation': 6,
-      'drawing': 5,
-      'narrative': 4,
-      'default': 1
-    };
-  }
+const getStaticTestData = () => {
+  return {
+    // EACr6 Test Case 1: Low-impact refrigerant (should pass Option 1)
+    eaCr6_option1_pass: {
+      'Refrigerant Used': 'R-1234ze(E)',
+      'ODP': 0,
+      'GWP': 4,
+      'Confirmation Statement': 'Yes - All equipment uses low-GWP refrigerants',
+      'Equipment Type': 'Heat Pump',
+      'Equipment Quantity': 2,
+      'Equipment Cooling Capacity': 50
+    },
 
-  /**
-   * Consolidate multi-document LEED data for assessment
-   * @param {Object} multiDocData - Multi-document data in format: {doc1: {EACr6: {Parameters: [], Values: {}}}}
-   * @param {string} creditId - Target credit ID
-   * @param {Object} options - Consolidation options
-   * @returns {Object} Consolidated data with conflict resolution
-   */
-  consolidateData(multiDocData, creditId, options = {}) {
-    const {
-      conflictResolution = 'priority', // 'priority', 'latest', 'manual'
-      customPriorities = {},
-      manualResolutions = {}
-    } = options;
+    // EACr6 Test Case 2: Standard refrigerant (should use Option 2)
+    eaCr6_option2_pass: {
+      'Refrigerant Used': 'R-32',
+      'ODP': 0,
+      'GWP': 675,
+      'Equipment Type': 'VRF System',
+      'Refrigerant charge': 45,
+      'Leakage Rate': 7,
+      'Equipment Life': 20,
+      'Equipment Cooling Capacity': 120,
+      'Equipment Quantity': 3
+    },
 
-    const consolidatedData = {};
-    const dataSources = {};
-    const conflicts = {};
-    const processingLog = [];
+    // EACr6 Test Case 3: High-impact refrigerant (should fail)
+    eaCr6_fail: {
+      'Refrigerant Used': 'R-410A',
+      'ODP': 0,
+      'GWP': 2088,
+      'Equipment Type': 'Split System',
+      'Refrigerant charge': 8,
+      'Leakage Rate': 15,
+      'Equipment Life': 15,
+      'Equipment Cooling Capacity': 25,
+      'Equipment Quantity': 10
+    },
 
-    // Extract parameter values from each document
-    Object.entries(multiDocData).forEach(([docName, docData]) => {
-      if (!docData[creditId]) {
-        processingLog.push(`Document ${docName} does not contain ${creditId} data`);
-        return;
-      }
+    // IEQCr5 Test Case 1: Compliant thermal comfort (should pass)
+    ieqCr5_pass: {
+      'Compliance Path': 'ASHRAE 55-2017',
+      'PMV': 0.3,
+      'PPD': 7,
+      'Operative Temperature Range': '68-76°F',
+      'Relative Humidity Range': '30-60%',
+      'Air Speed': '0.15 m/s',
+      'Clothing Insulation': '0.5 clo',
+      'Metabolic Rate': '1.0 met',
+      'Weather Data Source': 'TMY3',
+      'Total Individual Spaces': 150,
+      'Controlled Spaces': 142,
+      'Group Controls': 'Yes - Multi-zone VAV system',
+      'Thermostat Locations': 'Per architectural drawings'
+    },
 
-      const creditData = docData[creditId];
-      const parameters = creditData.Parameters || [];
-      const values = creditData.Values || {};
+    // IEQCr5 Test Case 2: Non-compliant PMV (should fail)
+    ieqCr5_fail_pmv: {
+      'Compliance Path': 'ASHRAE 55-2017',
+      'PMV': 0.8,
+      'PPD': 18,
+      'Operative Temperature Range': '65-80°F',
+      'Relative Humidity Range': '20-70%',
+      'Air Speed': '0.1 m/s',
+      'Clothing Insulation': '0.6 clo',
+      'Metabolic Rate': '1.1 met',
+      'Weather Data Source': 'TMY3',
+      'Total Individual Spaces': 100,
+      'Controlled Spaces': 45,
+      'Group Controls': 'Yes',
+      'Thermostat Locations': 'Per drawings'
+    },
 
-      parameters.forEach(parameter => {
-        const paramValue = values[parameter];
-        
-        if (paramValue !== undefined && paramValue !== null && paramValue !== '') {
-          if (consolidatedData[parameter] !== undefined) {
-            // Conflict detected
-            if (!conflicts[parameter]) {
-              conflicts[parameter] = [{
-                document: dataSources[parameter],
-                value: consolidatedData[parameter]
-              }];
-            }
-            conflicts[parameter].push({
-              document: docName,
-              value: paramValue
-            });
-          } else {
-            // First occurrence of this parameter
-            consolidatedData[parameter] = paramValue;
-            dataSources[parameter] = docName;
-          }
-        }
-      });
-    });
-
-    // Resolve conflicts
-    const resolvedData = this.resolveConflicts(
-      consolidatedData, 
-      conflicts, 
-      conflictResolution, 
-      { customPriorities, manualResolutions, dataSources }
-    );
-
-    return {
-      data: resolvedData.data,
-      sources: resolvedData.sources,
-      conflicts: conflicts,
-      resolutionLog: resolvedData.resolutionLog,
-      processingInfo: {
-        documentsProcessed: Object.keys(multiDocData).length,
-        parametersFound: Object.keys(resolvedData.data).length,
-        conflictsDetected: Object.keys(conflicts).length,
-        conflictsResolved: resolvedData.resolutionLog.length
-      },
-      processingLog
-    };
-  }
-
-  /**
-   * Resolve parameter conflicts using specified strategy
-   * @param {Object} data - Current consolidated data
-   * @param {Object} conflicts - Detected conflicts
-   * @param {string} strategy - Resolution strategy
-   * @param {Object} options - Resolution options
-   * @returns {Object} Resolved data
-   */
-  resolveConflicts(data, conflicts, strategy, options) {
-    const resolvedData = { ...data };
-    const resolvedSources = { ...options.dataSources };
-    const resolutionLog = [];
-
-    Object.entries(conflicts).forEach(([parameter, conflictList]) => {
-      let resolvedValue;
-      let resolvedSource;
-      let resolutionMethod;
-
-      switch (strategy) {
-        case 'priority':
-          const priorityResolution = this.resolveBypriority(conflictList, options.customPriorities);
-          resolvedValue = priorityResolution.value;
-          resolvedSource = priorityResolution.source;
-          resolutionMethod = 'priority-based';
-          break;
-
-        case 'latest':
-          const latestConflict = conflictList[conflictList.length - 1];
-          resolvedValue = latestConflict.value;
-          resolvedSource = latestConflict.document;
-          resolutionMethod = 'latest-document';
-          break;
-
-        case 'manual':
-          if (options.manualResolutions[parameter]) {
-            const manualChoice = options.manualResolutions[parameter];
-            const chosenConflict = conflictList.find(c => c.document === manualChoice.document);
-            if (chosenConflict) {
-              resolvedValue = chosenConflict.value;
-              resolvedSource = chosenConflict.document;
-              resolutionMethod = 'manual-selection';
-            }
-          }
-          break;
-
-        default:
-          // Default to first occurrence
-          resolvedValue = data[parameter];
-          resolvedSource = options.dataSources[parameter];
-          resolutionMethod = 'first-occurrence';
-      }
-
-      if (resolvedValue !== undefined) {
-        resolvedData[parameter] = resolvedValue;
-        resolvedSources[parameter] = resolvedSource;
-        
-        resolutionLog.push({
-          parameter,
-          conflicts: conflictList,
-          resolvedValue,
-          resolvedSource,
-          method: resolutionMethod
-        });
-      }
-    });
-
-    return {
-      data: resolvedData,
-      sources: resolvedSources,
-      resolutionLog
-    };
-  }
-
-  /**
-   * Resolve conflict using document priority
-   * @param {Array} conflictList - List of conflicting values
-   * @param {Object} customPriorities - Custom priority mappings
-   * @returns {Object} Resolution result
-   */
-  resolveBypriority(conflictList, customPriorities = {}) {
-    const priorities = { ...this.priorityRules, ...customPriorities };
-    
-    let bestConflict = conflictList[0];
-    let bestPriority = this.getDocumentPriority(bestConflict.document, priorities);
-
-    conflictList.forEach(conflict => {
-      const priority = this.getDocumentPriority(conflict.document, priorities);
-      if (priority > bestPriority) {
-        bestConflict = conflict;
-        bestPriority = priority;
-      }
-    });
-
-    return {
-      value: bestConflict.value,
-      source: bestConflict.document,
-      priority: bestPriority
-    };
-  }
-
-  /**
-   * Get document priority based on name patterns
-   * @param {string} docName - Document name
-   * @param {Object} priorities - Priority mappings
-   * @returns {number} Priority score
-   */
-  getDocumentPriority(docName, priorities) {
-    const lowerDocName = docName.toLowerCase();
-    
-    for (const [pattern, priority] of Object.entries(priorities)) {
-      if (lowerDocName.includes(pattern.toLowerCase())) {
-        return priority;
-      }
+    // IEQCr5 Test Case 3: Insufficient space control (should fail)
+    ieqCr5_fail_spaces: {
+      'Compliance Path': 'ASHRAE 55-2017',
+      'PMV': 0.2,
+      'PPD': 6,
+      'Operative Temperature Range': '68-76°F',
+      'Relative Humidity Range': '30-60%',
+      'Air Speed': '0.15 m/s',
+      'Clothing Insulation': '0.5 clo',
+      'Metabolic Rate': '1.0 met',
+      'Weather Data Source': 'TMY3',
+      'Total Individual Spaces': 200,
+      'Controlled Spaces': 85, // Only 42.5% controlled
+      'Group Controls': 'Yes',
+      'Thermostat Locations': 'Per drawings'
     }
-    
-    return priorities.default || 1;
-  }
-
-  /**
-   * Process and assess multi-document data in one step
-   * @param {Object} multiDocData - Multi-document structured data
-   * @param {string} creditId - Credit to assess
-   * @param {LEEDRuleEngine} ruleEngine - Rule engine instance
-   * @param {Object} options - Processing options
-   * @returns {Object} Complete consolidation and assessment result
-   */
-  processAndAssess(multiDocData, creditId, ruleEngine, options = {}) {
-    const {
-      units = 'IP',
-      conflictResolution = 'priority',
-      customPriorities = {},
-      manualResolutions = {},
-      includeDetailedLog = false
-    } = options;
-
-    // Step 1: Consolidate data from multiple documents
-    const consolidationResult = this.consolidateData(multiDocData, creditId, {
-      conflictResolution,
-      customPriorities,
-      manualResolutions
-    });
-
-    // Step 2: Assess with rule engine
-    const assessmentResult = ruleEngine.assessCredit(creditId, consolidationResult.data, units);
-
-    // Step 3: Generate recommendations
-    const recommendations = this.generateRecommendations(assessmentResult, consolidationResult);
-
-    // Step 4: Compile final result
-    const result = {
-      assessment: assessmentResult,
-      consolidation: {
-        parametersFound: consolidationResult.processingInfo.parametersFound,
-        documentsProcessed: consolidationResult.processingInfo.documentsProcessed,
-        conflictsDetected: consolidationResult.processingInfo.conflictsDetected,
-        conflictsResolved: consolidationResult.processingInfo.conflictsResolved,
-        dataSources: consolidationResult.sources
-      },
-      recommendations
-    };
-
-    if (includeDetailedLog) {
-      result.detailedLog = {
-        conflicts: consolidationResult.conflicts,
-        resolutionLog: consolidationResult.resolutionLog,
-        processingLog: consolidationResult.processingLog
-      };
-    }
-
-    return result;
-  }
-
-  /**
-   * Generate actionable recommendations
-   * @param {Object} assessmentResult - Assessment result
-   * @param {Object} consolidationResult - Consolidation result
-   * @returns {Array} Recommendations
-   */
-  generateRecommendations(assessmentResult, consolidationResult) {
-    const recommendations = [];
-
-    // Missing data recommendations
-    if (assessmentResult.gaps.length > 0) {
-      recommendations.push({
-        type: 'missing_data',
-        priority: 'high',
-        message: `Required parameters missing: ${assessmentResult.gaps.join(', ')}`,
-        parameters: assessmentResult.gaps,
-        action: 'Provide values for missing parameters to complete assessment'
-      });
-    }
-
-    // Non-compliance recommendations
-    if (assessmentResult.nonCompliant.length > 0) {
-      recommendations.push({
-        type: 'non_compliance',
-        priority: 'critical',
-        message: 'Credit requirements not met',
-        issues: assessmentResult.nonCompliant,
-        action: 'Address compliance issues to earn credit points'
-      });
-    }
-
-    // Data conflict recommendations
-    if (Object.keys(consolidationResult.conflicts).length > 0) {
-      recommendations.push({
-        type: 'data_conflicts',
-        priority: 'medium',
-        message: 'Conflicting values found across documents',
-        conflicts: Object.keys(consolidationResult.conflicts),
-        action: 'Review and verify parameter values across all source documents'
-      });
-    }
-
-    // Success recommendation
-    if (assessmentResult.awarded) {
-      recommendations.push({
-        type: 'success',
-        priority: 'info',
-        message: `Credit ${assessmentResult.creditId} successfully earned`,
-        points: assessmentResult.points,
-        action: 'Document and maintain compliance for final LEED submission'
-      });
-    }
-
-    return recommendations;
-  }
-
-  /**
-   * Validate multi-document data structure
-   * @param {Object} multiDocData - Multi-document data
-   * @param {Array} expectedCredits - Expected credit IDs
-   * @returns {Object} Validation result
-   */
-  validateDataStructure(multiDocData, expectedCredits = []) {
-    const validation = {
-      valid: true,
-      errors: [],
-      warnings: [],
-      documentCount: 0,
-      creditCoverage: {}
-    };
-
-    if (!multiDocData || typeof multiDocData !== 'object') {
-      validation.valid = false;
-      validation.errors.push('Invalid data structure: expected object with document keys');
-      return validation;
-    }
-
-    validation.documentCount = Object.keys(multiDocData).length;
-
-    // Validate each document
-    Object.entries(multiDocData).forEach(([docName, docData]) => {
-      if (!docData || typeof docData !== 'object') {
-        validation.errors.push(`Document ${docName}: Invalid structure`);
-        validation.valid = false;
-        return;
-      }
-
-      // Check for expected credits
-      expectedCredits.forEach(creditId => {
-        if (docData[creditId]) {
-          if (!validation.creditCoverage[creditId]) {
-            validation.creditCoverage[creditId] = [];
-          }
-          validation.creditCoverage[creditId].push(docName);
-
-          // Validate credit structure
-          const creditData = docData[creditId];
-          if (!creditData.Parameters || !Array.isArray(creditData.Parameters)) {
-            validation.warnings.push(`Document ${docName}, Credit ${creditId}: Missing or invalid Parameters array`);
-          }
-          if (!creditData.Values || typeof creditData.Values !== 'object') {
-            validation.warnings.push(`Document ${docName}, Credit ${creditId}: Missing or invalid Values object`);
-          }
-        }
-      });
-    });
-
-    return validation;
-  }
-}
-
-// Export the main classes for use
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    LEEDRuleEngine,
-    EACr6RuleSet,
-    IEQCr5RuleSet,
-    CalculationModule,
-    LEEDUtils,
-    LEEDDataConsolidator
   };
-}
+};
 
-// Example usage:
-/*
-const ruleEngine = new LEEDRuleEngine();
-const dataConsolidator = new LEEDDataConsolidator();
+/**
+ * LEED Score Controller Function
+ * Main controller for processing LEED credit assessments
+ */
+exports.LeedScoreController = async (req, res) => {
+  try {
+    console.log('=== LEED Credit Assessment Controller Started ===');
+    
+    // Initialize LEED Rule Engine
+    const ruleEngine = new LEEDRuleEngine();
+    
+    // Get static test data (replace with req.body in real implementation)
+    const testData = getStaticTestData();
+    
+    const results = {
+      timestamp: new Date().toISOString(),
+      assessments: {},
+      summary: {
+        totalCreditsAssessed: 0,
+        totalPointsEarned: 0,
+        totalPossiblePoints: 0,
+        successRate: 0,
+        overallStatus: 'UNKNOWN'
+      },
+      testCases: []
+    };
 
-// Example 1: Your structured multi-document data format
-const multiDocumentData = {
-  "hvac_schedule_doc": {
-    "EACr6": {
-      "Parameters": ["Refrigerant Used", "ODP", "GWP", "Equipment Type", "Equipment Quantity", "Equipment Cooling Capacity"],
-      "Values": {
-        "Refrigerant Used": "R-32",
-        "Equipment Type": "VRF",
-        "Equipment Quantity": 3,
-        "Equipment Cooling Capacity": 150
-      }
-    },
-    "IEQCr5": {
-      "Parameters": ["Total Individual Spaces", "Controlled Spaces"],
-      "Values": {
-        "Total Individual Spaces": 120,
-        "Controlled Spaces": 95
-      }
+    // Test EACr6 - Enhanced Refrigerant Management
+    console.log('\n--- Testing EACr6: Enhanced Refrigerant Management ---');
+    
+    // Test Case 1: Option 1 Pass (Low-impact refrigerant)
+    console.log('\nTest Case 1: Low-impact refrigerant (R-1234ze)');
+    try {
+      const eaCr6_test1 = ruleEngine.assessCredit('EACr6', testData.eaCr6_option1_pass, 'IP');
+      results.assessments.EACr6_Option1_Pass = eaCr6_test1;
+      results.summary.totalCreditsAssessed++;
+      results.summary.totalPointsEarned += eaCr6_test1.points;
+      results.summary.totalPossiblePoints += eaCr6_test1.maxPoints;
+      
+      console.log(`Result: ${eaCr6_test1.awarded ? 'PASSED' : 'FAILED'}`);
+      console.log(`Points: ${eaCr6_test1.points}/${eaCr6_test1.maxPoints}`);
+      console.log(`Option: ${eaCr6_test1.option}`);
+      
+      results.testCases.push({
+        credit: 'EACr6',
+        testCase: 'Low-impact refrigerant',
+        expected: 'PASS',
+        actual: eaCr6_test1.awarded ? 'PASS' : 'FAIL',
+        points: eaCr6_test1.points,
+        option: eaCr6_test1.option
+      });
+      
+    } catch (error) {
+      console.error('EACr6 Test 1 Error:', error.message);
+      results.assessments.EACr6_Option1_Pass = { error: error.message };
     }
-  },
-  "manufacturer_datasheet": {
-    "EACr6": {
-      "Parameters": ["ODP", "GWP", "Refrigerant charge", "Equipment Life"],
-      "Values": {
-        "ODP": 0,
-        "GWP": 675,
-        "Refrigerant charge": 75,
-        "Equipment Life": 20
+
+    // Test Case 2: Option 2 Pass (Standard refrigerant with good performance)
+    console.log('\nTest Case 2: Standard refrigerant (R-32) with calculations');
+    try {
+      const eaCr6_test2 = ruleEngine.assessCredit('EACr6', testData.eaCr6_option2_pass, 'IP');
+      results.assessments.EACr6_Option2_Pass = eaCr6_test2;
+      results.summary.totalCreditsAssessed++;
+      results.summary.totalPointsEarned += eaCr6_test2.points;
+      results.summary.totalPossiblePoints += eaCr6_test2.maxPoints;
+      
+      console.log(`Result: ${eaCr6_test2.awarded ? 'PASSED' : 'FAILED'}`);
+      console.log(`Points: ${eaCr6_test2.points}/${eaCr6_test2.maxPoints}`);
+      console.log(`Option: ${eaCr6_test2.option}`);
+      
+      if (eaCr6_test2.details.calculations) {
+        console.log(`Weighted Average: ${eaCr6_test2.details.calculations.weightedAverage.toFixed(2)} (threshold: ${eaCr6_test2.details.calculations.threshold})`);
       }
+      
+      results.testCases.push({
+        credit: 'EACr6',
+        testCase: 'Standard refrigerant with calculations',
+        expected: 'PASS',
+        actual: eaCr6_test2.awarded ? 'PASS' : 'FAIL',
+        points: eaCr6_test2.points,
+        option: eaCr6_test2.option,
+        calculation: eaCr6_test2.details.calculations?.weightedAverage
+      });
+      
+    } catch (error) {
+      console.error('EACr6 Test 2 Error:', error.message);
+      results.assessments.EACr6_Option2_Pass = { error: error.message };
     }
-  },
-  "commissioning_report": {
-    "EACr6": {
-      "Parameters": ["Leakage Rate", "Confirmation Statement"],
-      "Values": {
-        "Leakage Rate": 8,
-        "Confirmation Statement": "Yes"
+
+    // Test Case 3: Fail Case (High-impact refrigerant)
+    console.log('\nTest Case 3: High-impact refrigerant (R-410A)');
+    try {
+      const eaCr6_test3 = ruleEngine.assessCredit('EACr6', testData.eaCr6_fail, 'IP');
+      results.assessments.EACr6_Fail = eaCr6_test3;
+      results.summary.totalCreditsAssessed++;
+      results.summary.totalPointsEarned += eaCr6_test3.points;
+      results.summary.totalPossiblePoints += eaCr6_test3.maxPoints;
+      
+      console.log(`Result: ${eaCr6_test3.awarded ? 'PASSED' : 'FAILED'}`);
+      console.log(`Points: ${eaCr6_test3.points}/${eaCr6_test3.maxPoints}`);
+      console.log(`Option: ${eaCr6_test3.option}`);
+      
+      if (eaCr6_test3.nonCompliant.length > 0) {
+        console.log(`Non-compliant: ${eaCr6_test3.nonCompliant.join(', ')}`);
       }
-    },
-    "IEQCr5": {
-      "Parameters": ["PMV", "PPD", "Compliance Path", "Group Controls"],
-      "Values": {
-        "PMV": 0.3,
-        "PPD": 7,
-        "Compliance Path": "ASHRAE 55-2017",
-        "Group Controls": "Yes"
-      }
+      
+      results.testCases.push({
+        credit: 'EACr6',
+        testCase: 'High-impact refrigerant',
+        expected: 'FAIL',
+        actual: eaCr6_test3.awarded ? 'PASS' : 'FAIL',
+        points: eaCr6_test3.points,
+        option: eaCr6_test3.option,
+        issues: eaCr6_test3.nonCompliant
+      });
+      
+    } catch (error) {
+      console.error('EACr6 Test 3 Error:', error.message);
+      results.assessments.EACr6_Fail = { error: error.message };
     }
+
+    // Test IEQCr5 - Thermal Comfort
+    console.log('\n--- Testing IEQCr5: Thermal Comfort ---');
+    
+    // Test Case 4: Pass Case (Compliant thermal comfort)
+    console.log('\nTest Case 4: Compliant thermal comfort');
+    try {
+      const ieqCr5_test1 = ruleEngine.assessCredit('IEQCr5', testData.ieqCr5_pass, 'IP');
+      results.assessments.IEQCr5_Pass = ieqCr5_test1;
+      results.summary.totalCreditsAssessed++;
+      results.summary.totalPointsEarned += ieqCr5_test1.points;
+      results.summary.totalPossiblePoints += ieqCr5_test1.maxPoints;
+      
+      console.log(`Result: ${ieqCr5_test1.awarded ? 'PASSED' : 'FAILED'}`);
+      console.log(`Points: ${ieqCr5_test1.points}/${ieqCr5_test1.maxPoints}`);
+      
+      if (ieqCr5_test1.parts.part2.calculations) {
+        console.log(`Space Control: ${ieqCr5_test1.parts.part2.calculations.spacePercentage.toFixed(1)}%`);
+      }
+      
+      results.testCases.push({
+        credit: 'IEQCr5',
+        testCase: 'Compliant thermal comfort',
+        expected: 'PASS',
+        actual: ieqCr5_test1.awarded ? 'PASS' : 'FAIL',
+        points: ieqCr5_test1.points,
+        spaceControl: ieqCr5_test1.parts.part2.calculations?.spacePercentage
+      });
+      
+    } catch (error) {
+      console.error('IEQCr5 Test 1 Error:', error.message);
+      results.assessments.IEQCr5_Pass = { error: error.message };
+    }
+
+    // Test Case 5: Fail Case (PMV out of range)
+    console.log('\nTest Case 5: PMV out of acceptable range');
+    try {
+      const ieqCr5_test2 = ruleEngine.assessCredit('IEQCr5', testData.ieqCr5_fail_pmv, 'IP');
+      results.assessments.IEQCr5_Fail_PMV = ieqCr5_test2;
+      results.summary.totalCreditsAssessed++;
+      results.summary.totalPointsEarned += ieqCr5_test2.points;
+      results.summary.totalPossiblePoints += ieqCr5_test2.maxPoints;
+      
+      console.log(`Result: ${ieqCr5_test2.awarded ? 'PASSED' : 'FAILED'}`);
+      console.log(`Points: ${ieqCr5_test2.points}/${ieqCr5_test2.maxPoints}`);
+      
+      if (ieqCr5_test2.nonCompliant.length > 0) {
+        console.log(`Non-compliant: ${ieqCr5_test2.nonCompliant.join(', ')}`);
+      }
+      
+      results.testCases.push({
+        credit: 'IEQCr5',
+        testCase: 'PMV out of range',
+        expected: 'FAIL',
+        actual: ieqCr5_test2.awarded ? 'PASS' : 'FAIL',
+        points: ieqCr5_test2.points,
+        issues: ieqCr5_test2.nonCompliant
+      });
+      
+    } catch (error) {
+      console.error('IEQCr5 Test 2 Error:', error.message);
+      results.assessments.IEQCr5_Fail_PMV = { error: error.message };
+    }
+
+    // Test Case 6: Fail Case (Insufficient space control)
+    console.log('\nTest Case 6: Insufficient space control percentage');
+    try {
+      const ieqCr5_test3 = ruleEngine.assessCredit('IEQCr5', testData.ieqCr5_fail_spaces, 'IP');
+      results.assessments.IEQCr5_Fail_Spaces = ieqCr5_test3;
+      results.summary.totalCreditsAssessed++;
+      results.summary.totalPointsEarned += ieqCr5_test3.points;
+      results.summary.totalPossiblePoints += ieqCr5_test3.maxPoints;
+      
+      console.log(`Result: ${ieqCr5_test3.awarded ? 'PASSED' : 'FAILED'}`);
+      console.log(`Points: ${ieqCr5_test3.points}/${ieqCr5_test3.maxPoints}`);
+      
+      if (ieqCr5_test3.parts.part2.calculations) {
+        console.log(`Space Control: ${ieqCr5_test3.parts.part2.calculations.spacePercentage.toFixed(1)}%`);
+      }
+      
+      results.testCases.push({
+        credit: 'IEQCr5',
+        testCase: 'Insufficient space control',
+        expected: 'FAIL',
+        actual: ieqCr5_test3.awarded ? 'PASS' : 'FAIL',
+        points: ieqCr5_test3.points,
+        spaceControl: ieqCr5_test3.parts.part2.calculations?.spacePercentage
+      });
+      
+    } catch (error) {
+      console.error('IEQCr5 Test 3 Error:', error.message);
+      results.assessments.IEQCr5_Fail_Spaces = { error: error.message };
+    }
+
+    // Calculate summary statistics
+    results.summary.successRate = (results.summary.totalPointsEarned / results.summary.totalPossiblePoints * 100).toFixed(1);
+    
+    if (results.summary.totalPointsEarned === results.summary.totalPossiblePoints) {
+      results.summary.overallStatus = 'ALL_PASSED';
+    } else if (results.summary.totalPointsEarned > 0) {
+      results.summary.overallStatus = 'PARTIAL_SUCCESS';
+    } else {
+      results.summary.overallStatus = 'ALL_FAILED';
+    }
+
+    console.log('\n=== Final Assessment Summary ===');
+    console.log(`Total Points Earned: ${results.summary.totalPointsEarned}/${results.summary.totalPossiblePoints}`);
+    console.log(`Success Rate: ${results.summary.successRate}%`);
+    console.log(`Overall Status: ${results.summary.overallStatus}`);
+    console.log(`Test Cases Processed: ${results.summary.totalCreditsAssessed}`);
+
+    // Return results
+    if (res) {
+      return res.status(200).json({
+        success: true,
+        message: 'LEED credit assessment completed successfully',
+        data: results
+      });
+    }
+    
+    return results;
+    
+  } catch (error) {
+    console.error('LEED Assessment Controller Error:', error);
+    
+    if (res) {
+      return res.status(500).json({
+        success: false,
+        error: error.message,
+        message: 'LEED credit assessment failed',
+        data: null
+      });
+    }
+    
+    throw error;
   }
 };
 
-// One-step processing and assessment for EACr6
-const eaCr6Result = dataConsolidator.processAndAssess(multiDocumentData, 'EACr6', ruleEngine, {
-  units: 'IP',
-  conflictResolution: 'priority',
-  customPriorities: {
-    'manufacturer_datasheet': 10,
-    'commissioning_report': 8,
-    'hvac_schedule': 6
-  }
-});
-
-console.log('EACr6 Assessment:', eaCr6Result.assessment.awarded ? 'PASSED' : 'FAILED');
-console.log('Points:', eaCr6Result.assessment.points);
-console.log('Data Sources:', eaCr6Result.consolidation.dataSources);
-
-// Assess IEQCr5
-const ieqCr5Result = dataConsolidator.processAndAssess(multiDocumentData, 'IEQCr5', ruleEngine);
-console.log('IEQCr5 Assessment:', ieqCr5Result.assessment.awarded ? 'PASSED' : 'FAILED');
-
-// Example 2: Manual consolidation with custom conflict resolution
-const consolidatedData = dataConsolidator.consolidateData(multiDocumentData, 'EACr6', {
-  conflictResolution: 'manual',
-  manualResolutions: {
-    'GWP': { document: 'manufacturer_datasheet' }, // Always prefer manufacturer data for GWP
-    'Equipment Quantity': { document: 'hvac_schedule_doc' } // Prefer schedule for quantities
-  }
-});
-
-const manualAssessment = ruleEngine.assessCredit('EACr6', consolidatedData.data, 'IP');
-
-// Example 3: Validate data structure before processing
-const validation = dataConsolidator.validateDataStructure(multiDocumentData, ['EACr6', 'IEQCr5']);
-if (validation.valid) {
-  console.log(`Valid structure with ${validation.documentCount} documents`);
-  console.log('Credit coverage:', validation.creditCoverage);
-} else {
-  console.log('Validation errors:', validation.errors);
-}
-
-// Example 4: Handle conflicts with different strategies
-const strategies = ['priority', 'latest', 'manual'];
-strategies.forEach(strategy => {
-  const result = dataConsolidator.consolidateData(multiDocumentData, 'EACr6', {
-    conflictResolution: strategy
-  });
-  console.log(`${strategy} strategy resolved ${result.processingInfo.conflictsResolved} conflicts`);
-});
-
-// Example 5: Generate detailed processing report
-const detailedResult = dataConsolidator.processAndAssess(multiDocumentData, 'EACr6', ruleEngine, {
-  includeDetailedLog: true,
-  conflictResolution: 'priority'
-});
-
-console.log('Detailed Processing Log:');
-console.log('Conflicts:', detailedResult.detailedLog.conflicts);
-console.log('Resolution Log:', detailedResult.detailedLog.resolutionLog);
-console.log('Recommendations:', detailedResult.recommendations);
-
-// Example 6: Using the utility formatter
-const formattedReport = LEEDUtils.formatAssessmentReport(eaCr6Result.assessment);
-console.log(formattedReport);
-*/
+// Export all classes and utilities for external use
+module.exports = {
+  LEEDRuleEngine,
+  EACr6RuleSet,
+  IEQCr5RuleSet,
+  CalculationModule,
+  LEEDUtils,
+  LeedScoreController: exports.LeedScoreController,
+  getStaticTestData
+};
