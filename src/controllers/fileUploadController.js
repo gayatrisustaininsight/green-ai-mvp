@@ -5,7 +5,6 @@ const { successResponse, errorResponse } = require('../utils/response');
 
 exports.FileUpload = async (req, res) => {
     const foldername = req.params.foldername;
-    console.log(foldername, "FOLDER");
 
     try {
         if (!req.files) {
@@ -22,23 +21,19 @@ exports.FileUpload = async (req, res) => {
         );
 
         if (fileDetails) {
-            let fileSave = {};
-            if (req.files.length < 2) {
-                req.files.forEach((element, index) => {
-                    fileSave[element.fieldname] = fileDetails[index];
-                });
-            } else {
-                req.files.forEach((element) => {
-                    fileSave[element.fieldname] = [];
+            let fileSave = [];
+
+            req.files.forEach((element, index) => {
+                fileSave.push({
+                    name: element.originalname.replace(/ /g, '_'),
+                    url: fileDetails[index].url,
+                    lastModified: fileDetails[index].lastModified,
+                    size: element.size,
+                    type: element.mimetype
                 });
 
-                req.files.forEach((element, index) => {
-                    fileSave[element.fieldname].push({ [element.originalname.replace(/ /g, '_')]: fileDetails[index] });
-                });
-            } ;
+            });
 
-
-             
             return successResponse(res, {
                 statusCode: 200,
                 message: "Successfully Upload",
